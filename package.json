@@ -1,0 +1,13 @@
+{
+  "name": "toolwizhub-pii-scanner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Scan API responses / logs for unmasked PII — browser tool + CI CLI.",
+  "bin": { "pii-scan": "cli/pii-scan.js" },
+  "scripts": {
+    "api": "node cli/pii-scan.js",
+    "site": "python3 -m http.server 8080 --directory site",
+    "test": "node tests/scan.test.js"
+  }
+}
