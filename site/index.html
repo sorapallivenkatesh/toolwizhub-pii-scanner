@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PII Exposure Scanner — ToolWizHub</title>
+  <meta name="description" content="Paste an API response or log sample and flag unmasked PII — phone numbers, emails, precise location, cards, tokens — with DPDP/GDPR severity and masking suggestions. Runs entirely in your browser." />
+
+  <meta property="og:title" content="PII Exposure Scanner — ToolWizHub" />
+  <meta property="og:description" content="Flag unmasked PII in API responses & logs. Runs 100% in your browser." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://pii.toolwizhub.com" />
+
+  <link rel="icon" type="image/webp" href="assets/favicon.webp" />
+  <link rel="apple-touch-icon" href="assets/logo-icon.webp" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script>
+    try { if (sessionStorage.getItem("pii:splashed")) document.documentElement.classList.add("no-splash"); } catch (e) {}
+  </script>
+</head>
+<body>
+  <!-- ░░░ Splash ░░░ -->
+  <div class="splash" id="splash" aria-hidden="true">
+    <div class="splash__stage">
+      <div class="splash__glow"></div>
+      <div class="splash__sparkles"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <img class="splash__logo" src="assets/logo-full.webp" alt="ToolWizHub" width="200" height="200" />
+      <div class="splash__tagline">PII Scanner</div>
+      <div class="splash__bar"><span></span></div>
+    </div>
+  </div>
+
+  <header class="appbar">
+    <a class="brand" href="https://toolwizhub.com" aria-label="ToolWizHub PII Scanner">
+      <img class="brand__mark" src="assets/logo-icon.webp" alt="ToolWizHub" width="42" height="42" />
+      <span class="brand__text">
+        <strong>ToolWizHub</strong>
+        <span>PII EXPOSURE SCANNER</span>
+      </span>
+    </a>
+  </header>
+
+  <main class="main">
+    <section class="intro">
+      <h1 class="intro__title">Catch <span class="grad">unmasked PII</span> before it ships.</h1>
+      <p class="intro__sub">Paste an API response or log sample. Flags phone numbers, emails, precise location, cards, IDs &amp; tokens — with DPDP/GDPR severity and masking fixes.</p>
+      <span class="privacy">🔒 Runs 100% in your browser — nothing is uploaded.</span>
+    </section>
+
+    <section class="scan">
+      <div class="scan__panel">
+        <div class="scan__toolbar">
+          <span class="scan__label">Input — JSON response or log lines</span>
+          <span class="scan__samples">
+            try <button class="link" data-sample="json">a JSON response</button> ·
+            <button class="link" data-sample="logs">log lines</button>
+          </span>
+        </div>
+        <textarea id="pii-input" class="scan__input" spellcheck="false" autocomplete="off"
+          placeholder='{ "user": { "phone": "+91 9876543210", "email": "asha@example.com" } }'></textarea>
+        <div class="scan__actions">
+          <label class="thresh">Fail CI at
+            <select id="threshold">
+              <option value="critical">critical</option>
+              <option value="high" selected>high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+          </label>
+          <button class="btn btn--primary" id="scan-btn">Scan for PII</button>
+        </div>
+      </div>
+
+      <section class="results" id="results" hidden></section>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <a class="app-footer__brand" href="https://toolwizhub.com" target="_blank" rel="noopener" title="More free tools at ToolWizHub">
+      <span class="app-footer__label">More free tools at</span>
+      <img src="assets/logo-horizontal.webp" alt="ToolWizHub" />
+    </a>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
