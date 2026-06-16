@@ -52,7 +52,7 @@ html.no-splash .splash { display: none; }
   --c1: #22d3ee; --c2: #818cf8; --c3: #e879f9;
   --grad: linear-gradient(110deg, var(--c1), var(--c2) 55%, var(--c3));
   --ok: #34d399; --warn: #fbbf24; --fail: #fb7185; --low: #7c8cff;
-  --r: 18px; --r-pill: 999px;
+  --r: 18px; --r-pill: 999px; --maxw: 1600px;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --display: "Space Grotesk", var(--sans); --mono: "JetBrains Mono", ui-monospace, monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -72,7 +72,7 @@ a { color: inherit; text-decoration: none; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 
 /* ── App bar / brand ──────────────────────────────── */
-.appbar { display: flex; align-items: center; max-width: 920px; margin: 0 auto; padding: 22px clamp(20px, 5vw, 40px) 0; }
+.appbar { display: flex; align-items: center; max-width: var(--maxw); margin: 0 auto; padding: 22px clamp(20px, 5vw, 48px) 0; }
 .brand { display: inline-flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: var(--r); text-decoration: none;
   background: linear-gradient(180deg, #1d2333, #12151f); border: 1px solid var(--line); }
 .brand__mark { width: 42px; height: 42px; border-radius: 11px; object-fit: cover; box-shadow: 0 6px 18px rgba(0,0,0,.5); }
@@ -81,8 +81,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .brand__text span { font-size: 9.5px; letter-spacing: 0.16em; color: var(--muted); font-weight: 700; }
 
 /* ── Layout / intro ───────────────────────────────── */
-.main { max-width: 920px; margin: 0 auto; padding: 0 clamp(20px, 5vw, 40px); }
+.main { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(20px, 5vw, 48px); }
 .intro { text-align: center; padding: clamp(34px, 7vw, 64px) 0 28px; }
+.intro__title, .intro__sub { margin-left: auto; margin-right: auto; } /* hero stays readable; functional area goes full width */
 .intro__title { font-family: var(--display); font-weight: 700; letter-spacing: -1.2px; line-height: 1.06; font-size: clamp(30px, 5.2vw, 50px); color: #fff; }
 .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .intro__sub { color: var(--soft); font-size: clamp(15px, 2vw, 17px); max-width: 560px; margin: 16px auto 18px; }
@@ -169,20 +170,36 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .card__title { font-family: var(--display); font-weight: 600; font-size: 14px; }
 .card__body { padding: 6px 18px 14px; }
 
-.finding { display: flex; align-items: flex-start; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--line); }
-.finding:last-child { border-bottom: none; }
-.finding--ok { opacity: 0.72; }
-.finding__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.finding__field { font-family: var(--mono); font-size: 13.5px; color: var(--text); word-break: break-all; }
-.finding__meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.finding__type { font-size: 13px; color: var(--soft); }
+/* findings as a responsive card grid — align-items:start so a tall card doesn't
+   stretch its row-mates into big empty boxes */
+.finding-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); gap: 12px; padding: 14px 18px 16px; align-items: start; }
+.fcard { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 13px 14px 13px 17px; border-radius: 12px;
+  background: var(--glass-2); border: 1px solid var(--line); overflow: hidden; transition: transform .15s var(--ease), border-color .2s, box-shadow .2s; }
+.fcard:hover { transform: translateY(-2px); border-color: var(--line-strong); box-shadow: 0 10px 24px rgba(0,0,0,.28); }
+.fcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--muted); }
+.fcard--fail::before { background: var(--fail); }
+.fcard--warn::before { background: var(--warn); }
+.fcard--low::before  { background: var(--low); }
+.fcard--ok::before   { background: var(--ok); }
+.fcard--ok { opacity: .78; }
+.fcard--ignored { opacity: .7; }
+.fcard--ignored::before { background: var(--faint); }
+.fcard__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fcard__acts { display: flex; align-items: center; gap: 6px; }
+.fcard__type { font-family: var(--display); font-weight: 600; font-size: 13.5px; color: #fff; }
+.fcard--ignored .fcard__type { color: var(--soft); }
+.fcard__field { font-family: var(--mono); font-size: 11.5px; color: var(--muted); word-break: break-all; }
+.fcard--ignored .fcard__field { text-decoration: line-through; text-decoration-color: var(--faint); }
+.fcard__ex { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px;
+  background: rgba(0,0,0,.25); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+/* clamp long values (a field-name match can be a whole log line) so no card balloons */
+.fcard__raw, .fcard__masked { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; word-break: break-all; max-width: 100%; }
+.fcard__raw { color: var(--faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.18); }
+.fcard__arrow { color: var(--c1); flex-shrink: 0; }
+.fcard__masked { color: var(--ok); }
+.fcard__regs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 2px; }
 .reg { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 2px 7px; border-radius: 6px; background: var(--glass-2); border: 1px solid var(--line); }
 .reg--hint { color: var(--c2); }
-.finding__fix { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; }
-.finding__sample { color: var(--faint); word-break: break-all; max-width: 100%; }
-.finding__arrow { color: var(--c1); }
-.finding__masked { color: var(--ok); }
-.finding__right { flex-shrink: 0; }
 
 .snippet { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .snippet:last-child { border-bottom: none; }
@@ -222,7 +239,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .shared-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   padding: 13px 18px; border-radius: var(--r); background: var(--glass-2); border: 1px solid var(--line); }
 .shared-note span { font-size: 13px; font-weight: 600; color: var(--soft); }
-.finding__masked-k { font-family: var(--sans); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); }
 
 /* ── Copy buttons ─────────────────────────────────── */
 .card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -246,8 +262,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .masked-out code { font-family: var(--mono); font-size: 12.5px; color: var(--ok); white-space: pre-wrap; word-break: break-word; }
 
 /* ── Finding actions ──────────────────────────────── */
-.finding__right { display: flex; align-items: center; gap: 8px; }
-.finding__acts { display: flex; align-items: center; gap: 6px; }
 .mini { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 3px 8px; border-radius: 6px;
   background: var(--glass-2); border: 1px solid var(--line); transition: color .2s, border-color .2s; }
 .mini:hover { color: var(--text); border-color: var(--line-strong); }
@@ -257,10 +271,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .mini--restore:hover { color: #fff; background: rgba(34,211,238,.16); border-color: rgba(34,211,238,.5); }
 
 /* ── Ignored findings ─────────────────────────────── */
-.card--ignored { opacity: .82; }
 .card--ignored .card__title { color: var(--muted); }
-.finding--ignored .finding__field { color: var(--soft); text-decoration: line-through; text-decoration-color: var(--faint); }
-.finding--ignored .finding__type { color: var(--muted); }
 
 /* ── Custom rules ─────────────────────────────────── */
 .rules { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--glass); overflow: hidden; }
@@ -294,7 +305,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .rules__note code { font-family: var(--mono); color: var(--soft); }
 
 /* ── Footer ───────────────────────────────────────── */
-.app-footer { max-width: 920px; margin: 44px auto 0; padding: 20px clamp(20px,5vw,40px) 44px; display: flex; justify-content: center; border-top: 1px solid var(--line); }
+.app-footer { max-width: var(--maxw); margin: 44px auto 0; padding: 20px clamp(20px,5vw,48px) 44px; display: flex; justify-content: center; border-top: 1px solid var(--line); }
 .app-footer__brand { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; opacity: 0.5; transition: opacity 0.2s; }
 .app-footer__brand:hover { opacity: 1; }
 .app-footer__label { font-size: 12px; font-weight: 600; color: var(--muted); }
@@ -302,6 +313,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 @media (max-width: 560px) {
   .summary__fmt { margin-left: 0; width: 100%; }
-  .finding { flex-direction: column; gap: 8px; }
+  .finding-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001s !important; transition-duration: .001s !important; } }

@@ -183,84 +183,87 @@ function maskedCard(masked) {
 function findingsCard(findings, opts) {
   const card = el("section", "card");
   card.append(cardHead("Findings"));
-  const body = el("div", "card__body");
-  for (const f of findings) body.append(findingRow(f, opts));
-  card.append(body);
+  const grid = el("div", "finding-grid");
+  for (const f of findings) grid.append(findingCard(f, opts));
+  card.append(grid);
   return card;
 }
 
-function findingRow(f, opts) {
-  const row = el("div", "finding" + (f.masked ? " finding--ok" : ""));
+/* the masked value to show on a card (raw is struck through, never shown for shares) */
+function exampleOf(f, opts) {
+  if (opts.shared) return f.example ? { masked: f.example } : null;
+  if (f.masked) return { masked: f.sample };
+  if (f.suggested_masking) return { raw: f.sample, masked: f.suggested_masking };
+  return null;
+}
 
-  const left = el("div", "finding__main");
-  left.append(el("code", "finding__field", f.field));
-  const meta = el("div", "finding__meta");
-  meta.append(el("span", "finding__type", f.label));
-  for (const r of f.regulations) meta.append(el("span", "reg", r));
-  if (f.via === "field-name") meta.append(el("span", "reg reg--hint", "field-name"));
-  left.append(meta);
-  if (opts.shared) {
-    if (f.example) {
-      const fix = el("div", "finding__fix");
-      fix.append(el("span", "finding__masked-k", f.masked ? "value" : "masked as"), el("code", "finding__masked", f.example));
-      left.append(fix);
-    }
-  } else if (!f.masked && f.suggested_masking) {
-    const fix = el("div", "finding__fix");
-    fix.append(el("span", "finding__sample", f.sample), el("span", "finding__arrow", "→"), el("code", "finding__masked", f.suggested_masking));
-    left.append(fix);
-  }
+function findingCard(f, opts) {
+  const sc = sevClass(f.severity);
+  const c = el("div", `fcard fcard--${f.masked ? "ok" : sc}`);
 
-  const right = el("div", "finding__right");
-  right.append(f.masked
+  const top = el("div", "fcard__top");
+  top.append(f.masked
     ? el("span", "pill pill--ok pill--sm", "masked")
-    : el("span", `pill pill--${sevClass(f.severity)} pill--sm`, f.severity));
-  if (!opts.shared && (opts.onDismiss || opts.onAllowType)) {
-    const acts = el("div", "finding__acts");
+    : el("span", `pill pill--${sc} pill--sm`, f.severity));
+  if (!opts.shared && (opts.onAllowType || opts.onDismiss)) {
+    const acts = el("div", "fcard__acts");
     if (opts.onAllowType) {
-      const a = el("button", "mini", "allow type"); a.type = "button"; a.title = `Whitelist all "${f.label}" findings`;
+      const a = el("button", "mini", "allow"); a.type = "button"; a.title = `Whitelist all "${f.label}" findings`;
       a.addEventListener("click", () => opts.onAllowType(f)); acts.append(a);
     }
     if (opts.onDismiss) {
       const d = el("button", "mini mini--x", "✕"); d.type = "button"; d.title = "Ignore this finding";
       d.addEventListener("click", () => opts.onDismiss(f)); acts.append(d);
     }
-    right.append(acts);
+    top.append(acts);
   }
-  row.append(left, right);
-  return row;
+  c.append(top);
+
+  c.append(el("div", "fcard__type", f.label));
+  c.append(el("code", "fcard__field", f.field));
+
+  const ex = exampleOf(f, opts);
+  if (ex) {
+    const e = el("div", "fcard__ex");
+    if (ex.raw) e.append(el("span", "fcard__raw", ex.raw), el("span", "fcard__arrow", "→"));
+    e.append(el("code", "fcard__masked", ex.masked));
+    c.append(e);
+  }
+
+  if (f.regulations?.length || f.via === "field-name") {
+    const regs = el("div", "fcard__regs");
+    for (const r of f.regulations || []) regs.append(el("span", "reg", r));
+    if (f.via === "field-name") regs.append(el("span", "reg reg--hint", "field-name"));
+    c.append(regs);
+  }
+  return c;
 }
 
-/* ignored findings, kept visible below with a per-item restore (live view) */
+/* ignored findings, kept visible below as muted cards with a per-item restore */
 function ignoredCard(findings, opts) {
   const card = el("section", "card card--ignored");
   card.append(cardHead(`Ignored (${findings.length})`));
-  const body = el("div", "card__body");
-  for (const f of findings) body.append(ignoredRow(f, opts));
-  card.append(body);
+  const grid = el("div", "finding-grid");
+  for (const f of findings) grid.append(ignoredCardItem(f, opts));
+  card.append(grid);
   return card;
 }
 
-function ignoredRow(f, opts) {
-  const row = el("div", "finding finding--ignored");
-  const left = el("div", "finding__main");
-  left.append(el("code", "finding__field", f.field));
-  const meta = el("div", "finding__meta");
-  meta.append(el("span", "finding__type", f.label));
-  meta.append(el("span", `pill pill--${sevClass(f.severity)} pill--sm`, f.severity));
-  if (f.via === "field-name") meta.append(el("span", "reg reg--hint", "field-name"));
-  left.append(meta);
-
-  const right = el("div", "finding__right");
+function ignoredCardItem(f, opts) {
+  const c = el("div", "fcard fcard--ignored");
+  const top = el("div", "fcard__top");
+  top.append(el("span", `pill pill--${sevClass(f.severity)} pill--sm`, f.severity));
   if (!opts.shared && opts.onRestore) {
     const b = el("button", "mini mini--restore", "↺ restore"); b.type = "button"; b.title = "Restore this finding";
     b.addEventListener("click", () => opts.onRestore(f));
-    right.append(b);
+    top.append(b);
   } else {
-    right.append(el("span", "reg", "ignored"));
+    top.append(el("span", "reg", "ignored"));
   }
-  row.append(left, right);
-  return row;
+  c.append(top);
+  c.append(el("div", "fcard__type", f.label));
+  c.append(el("code", "fcard__field", f.field));
+  return c;
 }
 
 function snippetsCard(types) {
