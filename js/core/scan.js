@@ -75,14 +75,32 @@ function keyHint(hintKey, have) {
   return null;
 }
 
+// loose detectors that often misread another ID type's value (12-digit Aadhaar
+// looks phone-shaped; a DOB looks like a generic date)
+const GENERIC_VALUE_TYPES = new Set(["phone_number", "possible_dob"]);
+// field names confident enough to override a loose, whole-value pattern match
+const AUTHORITATIVE_FIELD_TYPES = new Set([
+  "aadhaar", "credit_card", "bank_account", "pan", "ssn", "passport", "voter_id",
+  "driver_license", "government_id", "date_of_birth", "ifsc", "upi_id", "tax_id", "imei",
+]);
+
 function detectInValue(field, hintKey, value, ctx) {
   const valueStr = String(value);
-  const out = detectSpans(valueStr, ctx).map((s) => makeFinding(field, s.type, s.text, "pattern", ctx));
+  let spans = detectSpans(valueStr, ctx);
   if ((typeof value === "string" || typeof value === "number") && valueStr.trim()) {
-    const t = keyHint(hintKey, new Set(out.map((f) => f.type)));
-    if (t) out.push(makeFinding(field, t, valueStr, "field-name", ctx));
+    const t = keyHint(hintKey, new Set(spans.map((s) => s.type)));
+    if (t) {
+      // an authoritative field name wins over a generic pattern that matched the WHOLE value
+      if (AUTHORITATIVE_FIELD_TYPES.has(t)) {
+        const whole = valueStr.trim();
+        spans = spans.filter((s) => !(GENERIC_VALUE_TYPES.has(s.type) && s.text.trim() === whole));
+      }
+      const out = spans.map((s) => makeFinding(field, s.type, s.text, "pattern", ctx));
+      out.push(makeFinding(field, t, valueStr, "field-name", ctx));
+      return out;
+    }
   }
-  return out;
+  return spans.map((s) => makeFinding(field, s.type, s.text, "pattern", ctx));
 }
 
 /* masked version of one scalar: replace each matched span (or the whole value

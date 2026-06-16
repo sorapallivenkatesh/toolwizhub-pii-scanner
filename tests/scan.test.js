@@ -131,7 +131,18 @@ ok(!JSON.stringify(back).includes("asha@example.com"), "raw email never leaves i
 ok(back.findings.some((f) => f.type === "email" && f.example && f.example.includes("***")), "shared example is the masked form");
 ok(decodeReport("@@ not base64 @@") === null, "garbage share blob → null");
 
-/* ── CI gate ──────────────────────────────────────── */
+/* ── one value → one type (no loose-pattern double-count) ── */
+const dup = scanText(JSON.stringify({
+  aadhaar_number: "1234 5678 9012",   // field says aadhaar; 12 digits also look phone-shaped
+  date_of_birth: "1992-08-15",        // field says DOB; also matches the generic date pattern
+}));
+ok(dup.findings.filter((f) => f.field === "aadhaar_number").length === 1, "aadhaar field → one finding, not aadhaar+phone");
+ok(dup.findings.some((f) => f.field === "aadhaar_number" && f.type === "aadhaar"), "aadhaar field kept as aadhaar");
+ok(!dup.findings.some((f) => f.field === "aadhaar_number" && f.type === "phone_number"), "aadhaar value not also a phone");
+ok(dup.findings.filter((f) => f.field === "date_of_birth").length === 1, "dob field → one finding, not dob+possible_dob");
+ok(!dup.findings.some((f) => f.field === "date_of_birth" && f.type === "possible_dob"), "dob value not also possible_dob");
+
+/* CI gate ─────────────────────────────────────────── */
 ok(failsAt(r, "high"), "fails at high");
 ok(!failsAt(scanText('{"ok":true,"count":5}'), "high"), "clean payload passes");
 
