@@ -46,21 +46,48 @@
   <main class="main">
     <section class="intro">
       <h1 class="intro__title">Catch <span class="grad">unmasked PII</span> before it ships.</h1>
-      <p class="intro__sub">Paste an API response or log sample. Flags phone numbers, emails, precise location, cards, IDs &amp; tokens — with DPDP/GDPR severity and masking fixes.</p>
+      <p class="intro__sub">Paste an API response, fetch a URL, or drop a file. Flags phone numbers, emails, precise location, cards, IDs &amp; tokens — with DPDP/GDPR severity and masking fixes.</p>
       <span class="privacy">🔒 Runs 100% in your browser — nothing is uploaded.</span>
     </section>
 
     <section class="scan">
       <div class="scan__panel">
-        <div class="scan__toolbar">
-          <span class="scan__label">Input — JSON response or log lines</span>
+        <div class="scan__tabs" role="tablist">
+          <button class="tab is-active" type="button" role="tab" data-mode="paste">Paste</button>
+          <button class="tab" type="button" role="tab" data-mode="url">From URL</button>
+          <button class="tab" type="button" role="tab" data-mode="file">Upload</button>
           <span class="scan__samples">
-            try <button class="link" data-sample="json">a JSON response</button> ·
-            <button class="link" data-sample="logs">log lines</button>
+            try <button class="link" data-sample="json">JSON</button> ·
+            <button class="link" data-sample="logs">logs</button>
           </span>
         </div>
-        <textarea id="pii-input" class="scan__input" spellcheck="false" autocomplete="off"
-          placeholder='{ "user": { "phone": "+91 9876543210", "email": "asha@example.com" } }'></textarea>
+
+        <div class="pane" data-pane="paste">
+          <div class="dropzone" id="dropzone">
+            <textarea id="pii-input" class="scan__input" spellcheck="false" autocomplete="off"
+              placeholder='{ "user": { "phone": "+91 9876543210", "email": "asha@example.com" } }'></textarea>
+            <span class="dropzone__hint">Drop a .json / .ndjson / .log file</span>
+          </div>
+        </div>
+
+        <div class="pane" data-pane="url" hidden>
+          <div class="url-row">
+            <input id="url-input" class="url-in" type="url" inputmode="url" spellcheck="false" autocomplete="off"
+              placeholder="https://api.example.com/users/me" />
+            <button class="btn btn--ghost" type="button" id="url-fetch">Fetch &amp; scan</button>
+          </div>
+          <p class="url-note" id="url-note">Fetched in your browser; the response is scanned locally — never sent anywhere else. Cross-origin URLs require the server to send CORS headers.</p>
+        </div>
+
+        <div class="pane" data-pane="file" hidden>
+          <label class="filedrop" id="filedrop" for="file-input">
+            <span class="filedrop__icon" aria-hidden="true">⤓</span>
+            <span class="filedrop__text">Drop a file here, or <span class="filedrop__link">browse</span></span>
+            <span class="filedrop__sub">.json · .ndjson · .log · .txt — read locally, never uploaded</span>
+          </label>
+          <input type="file" id="file-input" accept=".json,.ndjson,.log,.txt,text/*,application/json" hidden />
+        </div>
+
         <div class="scan__actions">
           <label class="thresh">Fail CI at
             <select id="threshold">
@@ -73,6 +100,26 @@
           <button class="btn btn--primary" id="scan-btn">Scan for PII</button>
         </div>
       </div>
+
+      <details class="rules">
+        <summary class="rules__summary">Custom rules <span class="rules__hint">— add your own regex patterns</span></summary>
+        <div class="rules__body">
+          <div class="rules__form">
+            <input id="rule-label" class="rules__in" type="text" placeholder="Name (e.g. Employee ID)" autocomplete="off" />
+            <input id="rule-pattern" class="rules__in rules__in--mono" type="text" placeholder="Regex (e.g. EMP-\d{5})" autocomplete="off" spellcheck="false" />
+            <select id="rule-sev" class="rules__sev">
+              <option value="critical">critical</option>
+              <option value="high" selected>high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+            <button id="rule-add" class="btn btn--ghost" type="button">Add rule</button>
+          </div>
+          <p id="rule-err" class="rules__err"></p>
+          <ul id="rule-list" class="rules__list"></ul>
+          <p class="rules__note">Rules are saved in your browser only. Matches are flagged and masked as <code>[redacted]</code>.</p>
+        </div>
+      </details>
 
       <section class="results" id="results" hidden></section>
     </section>
