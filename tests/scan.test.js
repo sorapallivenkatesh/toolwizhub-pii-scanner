@@ -1,6 +1,7 @@
 /* Edge-case tests for the scan engine. Run: npm test */
 import assert from "node:assert";
-import { scanText, failsAt } from "../js/core/scan.js";
+import { scanText, failsAt, maskText } from "../js/core/scan.js";
+import { encodeReport, decodeReport } from "../js/core/share.js";
 import { aadhaarValid, luhnValid, publicIPv4 } from "../js/core/rules.js";
 
 let pass = 0;
@@ -91,6 +92,44 @@ const sens = scanText(JSON.stringify({
   sessionId: "abc123def456", cvv: "123", gender: "female", deviceId: "GAID-xyz",
 }));
 for (const t of ["religion", "ethnicity", "political", "health_data", "biometric", "session_token", "cvv", "gender", "device_id"]) ok(has(sens, t), `field-hint ${t}`);
+
+/* ── masked-copy output (maskText) ────────────────── */
+const maskedJson = maskText(JSON.stringify({ user: { phone: "+91 9876543210", email: "asha@example.com" }, password: "hunter2" }));
+ok(!maskedJson.includes("9876543210"), "masked copy redacts the raw phone");
+ok(!maskedJson.includes("asha@example.com"), "masked copy redacts the raw email");
+ok(!maskedJson.includes("hunter2"), "masked copy redacts a field-hint-only password");
+ok(JSON.parse(maskedJson).user.email.includes("@"), "masked JSON stays valid + recognisably an email");
+const maskedLog = maskText("INFO user=raj@corp.com password=hunter2 ip=198.51.100.7");
+ok(!maskedLog.includes("raj@corp.com") && !maskedLog.includes("hunter2") && !maskedLog.includes("198.51.100.7"), "masked log redacts email + password + ip");
+ok(maskText('{"ok":true,"n":5}') === JSON.stringify({ ok: true, n: 5 }, null, 2), "clean JSON masks to itself");
+
+/* ── custom rules ─────────────────────────────────── */
+const customRules = [{ label: "Employee ID", pattern: "EMP-\\d{5}", severity: "high" }];
+const cr = scanText('{"who":"EMP-12345 logged in"}', { customRules });
+ok(cr.findings.some((f) => f.type === "custom:Employee ID" && f.severity === "high"), "custom rule detects EMP-#####");
+ok(!scanText('{"who":"EMP-12345 logged in"}').findings.some((f) => f.type.startsWith("custom:")), "custom rule inert without opts");
+ok(maskText("user EMP-12345 here", { customRules }).includes("[redacted]"), "custom rule masks to [redacted]");
+ok(scanText("x", { customRules: [{ label: "bad", pattern: "(", severity: "low" }] }).findings !== undefined, "invalid custom regex is skipped, not thrown");
+
+/* ── NDJSON ───────────────────────────────────────── */
+const nd = scanText([
+  '{"email":"a@x.com","ip":"203.0.113.9"}',
+  '{"phone":"+91 9876543210"}',
+].join("\n"));
+ok(nd.format === "ndjson", "newline-delimited JSON detected");
+ok(has(nd, "email") && has(nd, "phone_number") && has(nd, "ip_address"), "NDJSON walks each line's fields");
+ok(nd.findings.find((f) => f.type === "phone_number").field.startsWith("line 2"), "NDJSON field paths are line-prefixed");
+
+/* ── share link (sanitized, no raw PII) ───────────── */
+const shareR = scanText(JSON.stringify({ user: { phone: "+91 9876543210", email: "asha@example.com" } }));
+const blob = encodeReport(shareR);
+const back = decodeReport(blob);
+ok(back && back.findings.length === shareR.findings.length, "share link round-trips findings");
+ok(/^[A-Za-z0-9_-]+$/.test(blob), "share blob is URL-safe");
+ok(!JSON.stringify(back).includes("9876543210"), "raw phone never leaves in the share link");
+ok(!JSON.stringify(back).includes("asha@example.com"), "raw email never leaves in the share link");
+ok(back.findings.some((f) => f.type === "email" && f.example && f.example.includes("***")), "shared example is the masked form");
+ok(decodeReport("@@ not base64 @@") === null, "garbage share blob → null");
 
 /* ── CI gate ──────────────────────────────────────── */
 ok(failsAt(r, "high"), "fails at high");

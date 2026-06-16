@@ -1,6 +1,7 @@
-/* core/scan.js — PURE scan engine. Parse JSON (or fall back to log/text),
-   walk to values with field paths, run detectors with span-level dedup so a
-   value isn't double-flagged, and return structured findings. No DOM/I-O. */
+/* core/scan.js — PURE scan + mask engine. Parse JSON / NDJSON / log-text, walk
+   to values with field paths, detect PII (with span-level dedup), and either
+   report findings or produce a masked copy. Supports user custom rules.
+   No DOM, no I/O. */
 
 import { TYPE_META, VALUE_DETECTORS, KEY_HINTS, isMasked, SEVERITY_ORDER } from "./rules.js";
 
@@ -10,34 +11,34 @@ const SUPPRESS = { device_id: ["imei", "uuid"], location: ["precise_location"], 
 const sev = (f) => SEVERITY_ORDER[f.severity] || 0;
 const truncate = (s, n = 120) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
-function safeMask(type, value) {
-  try { return TYPE_META[type].mask(value); } catch { return "‹masked›"; }
+/* Build the active detector list + type metadata: built-ins plus any user
+   custom rules ({label, pattern, severity}). Custom detectors run last, so the
+   precise built-ins claim their spans first. */
+function buildContext(customRules = []) {
+  const detectors = [...VALUE_DETECTORS];
+  const meta = { ...TYPE_META };
+  (customRules || []).forEach((rule, i) => {
+    if (!rule || !rule.pattern) return;
+    let compiled;
+    try { compiled = new RegExp(rule.pattern, "g"); } catch { return; } // skip invalid regex
+    const type = "custom:" + (rule.label || `rule-${i + 1}`);
+    meta[type] = { label: rule.label || "Custom rule", severity: rule.severity || "high", regs: ["custom"], mask: () => "[redacted]", custom: true };
+    detectors.push({ type, regex: () => new RegExp(compiled.source, "g") });
+  });
+  return { detectors, meta };
 }
 
-function makeFinding(field, type, matched, via) {
-  const meta = TYPE_META[type];
-  const masked = isMasked(matched);
-  return {
-    field, type,
-    label: meta.label,
-    masked,
-    severity: meta.severity,
-    regulations: meta.regs,
-    sample: truncate(String(matched)),
-    suggested_masking: masked ? null : safeMask(type, matched),
-    via, // "pattern" | "field-name"
-  };
+function safeMask(meta, type, value) {
+  try { return meta[type].mask(value); } catch { return "‹masked›"; }
 }
 
-/* run all value detectors over one string, claiming character spans so the
-   first (most specific) match wins and overlapping weaker matches are dropped */
-function detectInValue(field, hintKey, value) {
-  const out = [];
-  const valueStr = String(value);
+/* find PII spans in a string; first (most specific) detector claims a range so
+   overlapping weaker matches are dropped */
+function detectSpans(valueStr, ctx) {
   const claimed = [];
   const overlaps = (s, e) => claimed.some(([cs, ce]) => s < ce && e > cs);
-
-  for (const det of VALUE_DETECTORS) {
+  const spans = [];
+  for (const det of ctx.detectors) {
     const re = det.regex();
     let m;
     while ((m = re.exec(valueStr)) !== null) {
@@ -47,64 +48,109 @@ function detectInValue(field, hintKey, value) {
       if (det.validate && !det.validate(text)) continue;
       if (overlaps(start, end)) continue;
       claimed.push([start, end]);
-      out.push(makeFinding(field, det.type, text, "pattern"));
+      spans.push({ type: det.type, text, start, end });
     }
   }
+  return spans.sort((a, b) => a.start - b.start);
+}
 
-  // field-name hint (one per key) — catches name/address/password/etc. the regex can't,
-  // and bare values (e.g. an unformatted phone) sitting in a clearly-PII field.
+function makeFinding(field, type, matched, via, ctx) {
+  const meta = ctx.meta[type];
+  const masked = isMasked(matched);
+  return {
+    field, type, label: meta.label, masked,
+    severity: meta.severity, regulations: meta.regs,
+    sample: truncate(String(matched)),
+    suggested_masking: masked ? null : safeMask(ctx.meta, type, matched),
+    via, // "pattern" | "field-name"
+  };
+}
+
+/* first matching field-name hint for a key, skipping types we already have */
+function keyHint(hintKey, have) {
+  if (!hintKey) return null;
+  for (const h of KEY_HINTS) {
+    if (h.re.test(hintKey) && !have.has(h.type) && !(SUPPRESS[h.type] || []).some((t) => have.has(t))) return h.type;
+  }
+  return null;
+}
+
+function detectInValue(field, hintKey, value, ctx) {
+  const valueStr = String(value);
+  const out = detectSpans(valueStr, ctx).map((s) => makeFinding(field, s.type, s.text, "pattern", ctx));
   if ((typeof value === "string" || typeof value === "number") && valueStr.trim()) {
-    const have = new Set(out.map((f) => f.type));
-    for (const hint of KEY_HINTS) {
-      if (hint.re.test(hintKey) && !have.has(hint.type) && !(SUPPRESS[hint.type] || []).some((t) => have.has(t))) {
-        out.push(makeFinding(field, hint.type, valueStr, "field-name"));
-        break;
-      }
-    }
+    const t = keyHint(hintKey, new Set(out.map((f) => f.type)));
+    if (t) out.push(makeFinding(field, t, valueStr, "field-name", ctx));
   }
   return out;
 }
 
-/* recurse parsed JSON. hintKey = the key that holds a scalar (for array items
-   it's the array's key, so ["phones"][0] still gets the phone hint). */
-function walk(node, path, hintKey, out) {
-  if (node === null || node === undefined) return;
-  if (Array.isArray(node)) {
-    node.forEach((v, i) => walk(v, `${path}[${i}]`, hintKey, out));
-  } else if (typeof node === "object") {
-    for (const [k, v] of Object.entries(node)) walk(v, path ? `${path}.${k}` : k, k, out);
-  } else {
-    out.push({ field: path || "(root)", key: hintKey || "", value: node });
+/* masked version of one scalar: replace each matched span (or the whole value
+   when only a field-name hint applies). Returns the original value untouched if
+   nothing matched, so JSON types are preserved where possible. */
+function maskScalar(value, hintKey, ctx) {
+  const valueStr = String(value);
+  const spans = detectSpans(valueStr, ctx);
+  if (spans.length) {
+    let out = valueStr;
+    for (const s of [...spans].sort((a, b) => b.start - a.start)) {
+      if (isMasked(s.text)) continue;
+      out = out.slice(0, s.start) + safeMask(ctx.meta, s.type, s.text) + out.slice(s.end);
+    }
+    return out;
   }
+  if ((typeof value === "string" || typeof value === "number") && valueStr.trim() && !isMasked(valueStr)) {
+    const t = keyHint(hintKey, new Set());
+    if (t) return safeMask(ctx.meta, t, valueStr);
+  }
+  return value;
 }
 
+/* ── JSON walking ─────────────────────────────────── */
+function walk(node, path, hintKey, out, ctx) {
+  if (node === null || node === undefined) return;
+  if (Array.isArray(node)) node.forEach((v, i) => walk(v, `${path}[${i}]`, hintKey, out, ctx));
+  else if (typeof node === "object") for (const [k, v] of Object.entries(node)) walk(v, path ? `${path}.${k}` : k, k, out, ctx);
+  else out.push(...detectInValue(path || "(root)", hintKey || "", node, ctx));
+}
+function maskNode(node, hintKey, ctx) {
+  if (node === null || node === undefined) return node;
+  if (Array.isArray(node)) return node.map((v) => maskNode(v, hintKey, ctx));
+  if (typeof node === "object") { const o = {}; for (const [k, v] of Object.entries(node)) o[k] = maskNode(v, k, ctx); return o; }
+  return maskScalar(node, hintKey, ctx);
+}
+
+/* ── log / text lines ─────────────────────────────── */
 const PAIR_RE = () => /([A-Za-z_][\w.-]*)\s*[=:]\s*(?:"([^"]*)"|'([^']*)'|([^\s,;}]+))/g;
-
-function scanLogs(text) {
-  const findings = [];
-  text.split(/\r?\n/).forEach((line, i) => {
-    if (!line.trim()) return;
-    const field = `line ${i + 1}`;
-    const seen = new Set();
-    // 1) key=value / key:value pairs — gives field names + catches key-hint-only PII
-    let m;
-    const re = PAIR_RE();
-    while ((m = re.exec(line)) !== null) {
-      const key = m[1];
-      const val = m[2] ?? m[3] ?? m[4] ?? "";
-      for (const f of detectInValue(`${field} · ${key}`, key, val)) {
-        const sig = `${f.type}|${f.sample}`;
-        if (!seen.has(sig)) { seen.add(sig); findings.push(f); }
-      }
-    }
-    // 2) whole-line pattern scan for bare PII not in key=value form
-    for (const f of detectInValue(field, "", line)) {
-      const sig = `${f.type}|${f.sample}`;
-      if (!seen.has(sig)) { seen.add(sig); findings.push(f); }
-    }
-  });
-  return findings;
+function scanLogLine(line, i, ctx, findings) {
+  const field = `line ${i + 1}`;
+  const seen = new Set();
+  const push = (f) => { const sig = `${f.type}|${f.sample}`; if (!seen.has(sig)) { seen.add(sig); findings.push(f); } };
+  let m;
+  const re = PAIR_RE();
+  while ((m = re.exec(line)) !== null) {
+    const val = m[2] ?? m[3] ?? m[4] ?? "";
+    detectInValue(`${field} · ${m[1]}`, m[1], val, ctx).forEach(push);
+  }
+  detectInValue(field, "", line, ctx).forEach(push); // bare PII not in key=value form
 }
+function maskLine(line, ctx) {
+  // pattern-mask first (emails, IPs, cards…), then key=value hints for what regex
+  // can't catch on its own (password=hunter2)
+  let out = String(maskScalar(line, "", ctx));
+  out = out.replace(PAIR_RE(), (full, key, dq, sq, bare) => {
+    const raw = dq ?? sq ?? bare ?? "";
+    if (!raw || isMasked(raw)) return full;
+    const t = keyHint(key, new Set());
+    return t ? full.replace(raw, safeMask(ctx.meta, t, raw)) : full;
+  });
+  return out;
+}
+
+const looksNdjson = (text) => {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  return lines.length > 1 && lines.every((l) => /^\s*\{.*\}\s*$/.test(l));
+};
 
 function summarize(findings) {
   const unmasked = findings.filter((f) => !f.masked);
@@ -114,31 +160,51 @@ function summarize(findings) {
   return { total: findings.length, unmasked: unmasked.length, masked: findings.length - unmasked.length, by, status };
 }
 
-/** Scan API-response JSON or raw log/text. */
-export function scanText(input) {
+/** Scan API-response JSON, NDJSON, or raw log/text.
+ *  opts.customRules = [{label, pattern, severity}] (optional). */
+export function scanText(input, opts = {}) {
+  const ctx = buildContext(opts.customRules);
   const text = String(input ?? "");
+  const trimmed = text.trim();
   let findings = [];
   let format = "text";
 
-  const trimmed = text.trim();
   if (trimmed && (trimmed[0] === "{" || trimmed[0] === "[")) {
-    try {
-      const leaves = [];
-      walk(JSON.parse(text), "", "", leaves);
-      for (const lf of leaves) findings.push(...detectInValue(lf.field, lf.key, lf.value));
-      format = "json";
-    } catch { /* malformed JSON → fall through to text scan */ }
+    try { walk(JSON.parse(text), "", "", findings, ctx); format = "json"; } catch { /* fall through */ }
   }
-  if (format !== "json") {
-    findings = scanLogs(text);
+  if (format === "text" && looksNdjson(text)) {
+    format = "ndjson";
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (!line.trim()) return;
+      try { walk(JSON.parse(line), `line ${i + 1}`, "", findings, ctx); } catch { scanLogLine(line, i, ctx, findings); }
+    });
+  }
+  if (format === "text") {
     format = "logs";
+    text.split(/\r?\n/).forEach((line, i) => { if (line.trim()) scanLogLine(line, i, ctx, findings); });
   }
 
   if (findings.length > MAX_FINDINGS) findings = findings.slice(0, MAX_FINDINGS);
   findings.sort((a, b) => Number(a.masked) - Number(b.masked) || sev(b) - sev(a));
-
   const top = findings.find((f) => !f.masked && f.suggested_masking);
   return { format, findings, suggested_masking: top ? top.suggested_masking : null, summary: summarize(findings) };
+}
+
+/** Produce a masked copy of the input (same parsing rules as scanText). */
+export function maskText(input, opts = {}) {
+  const ctx = buildContext(opts.customRules);
+  const text = String(input ?? "");
+  const trimmed = text.trim();
+  if (trimmed && (trimmed[0] === "{" || trimmed[0] === "[")) {
+    try { return JSON.stringify(maskNode(JSON.parse(text), "", ctx), null, 2); } catch { /* fall through */ }
+  }
+  if (looksNdjson(text)) {
+    return text.split(/\r?\n/).map((line) => {
+      if (!line.trim()) return line;
+      try { return JSON.stringify(maskNode(JSON.parse(line), "", ctx)); } catch { return maskLine(line, ctx); }
+    }).join("\n");
+  }
+  return text.split(/\r?\n/).map((line) => (line.trim() ? maskLine(line, ctx) : line)).join("\n");
 }
 
 /** CI helper: non-zero exit warranted at this threshold? */
