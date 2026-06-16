@@ -73,12 +73,14 @@ function scan() {
       isIgnored,
       onDismiss: (f) => { ignore.add(sigOne(f)); persistIgnore(); rescan(); },
       onAllowType: (f) => { ignore.add(`type:${f.type}`); persistIgnore(); rescan(); },
+      onRestore: (f) => { ignore.delete(sigOne(f)); ignore.delete(`type:${f.type}`); persistIgnore(); rescan(); },
       onResetIgnores: () => { ignore.clear(); persistIgnore(); rescan(); },
       onExport: (fmt) => fmt === "md"
         ? download("pii-report.md", toMarkdown(result), "text/markdown")
         : download("pii-report.json", JSON.stringify(result, null, 2), "application/json"),
       buildShareLink: () => {
-        const shared = { ...result, findings: result.findings.filter((f) => !isIgnored(f)) };
+        // carry ignored findings too (flagged), so the team sees what was dismissed
+        const shared = { ...result, findings: result.findings.map((f) => ({ ...f, ignored: isIgnored(f) })) };
         return `${location.origin}${location.pathname}#report=${encodeReport(shared)}`;
       },
     }));

@@ -16,7 +16,7 @@ export function sanitizeReport(result) {
     findings: (result.findings || []).map((f) => ({
       field: f.field, type: f.type, label: f.label,
       severity: f.severity, regulations: f.regulations,
-      via: f.via, masked: f.masked,
+      via: f.via, masked: f.masked, ignored: !!f.ignored,
       // never the raw value — an already-masked sample is fine, otherwise the masked suggestion
       example: f.masked ? f.sample : (f.suggested_masking || null),
     })),

@@ -27,11 +27,12 @@ const sevClass = (s) => (s === "critical" || s === "high" ? "fail" : s === "medi
 
 export function renderReport(result, opts = {}) {
   const frag = document.createDocumentFragment();
-  const isIgnored = opts.isIgnored || (() => false);
-  const visible = result.findings.filter((f) => !isIgnored(f));
-  const ignoredCount = result.findings.length - visible.length;
+  // live view filters via opts.isIgnored; a shared report carries the flag per finding
+  const ignoredOf = opts.shared ? (f) => !!f.ignored : (opts.isIgnored || (() => false));
+  const visible = result.findings.filter((f) => !ignoredOf(f));
+  const ignored = result.findings.filter(ignoredOf);
 
-  frag.append(summaryBar(result, visible, ignoredCount, opts));
+  frag.append(summaryBar(result, visible, ignored.length, opts));
 
   if (!result.findings.length) {
     frag.append(el("div", "clean", "✓ No PII detected. Looks clean!"));
@@ -50,7 +51,9 @@ export function renderReport(result, opts = {}) {
   if (opts.masked && opts.masked !== opts.rawInput) frag.append(maskedCard(opts.masked));
 
   if (visible.length) frag.append(findingsCard(visible, opts));
-  else frag.append(el("div", "clean", ignoredCount ? "All findings ignored. Reset to review them again." : "✓ No PII detected."));
+  else if (ignored.length) frag.append(el("div", "clean", "All findings ignored — restore any below."));
+
+  if (ignored.length) frag.append(ignoredCard(ignored, opts));
 
   const types = [...new Set(visible.filter((f) => !f.masked).map((f) => f.type))];
   if (types.length) frag.append(snippetsCard(types));
@@ -79,10 +82,13 @@ function summaryBar(result, visible, ignoredCount, opts) {
   }
   if (s.masked) counts.append(el("span", "tally tally--masked", `${s.masked} masked`));
   if (ignoredCount) {
-    const ig = el("button", "tally tally--ignored", `${ignoredCount} ignored · reset`);
-    ig.type = "button";
-    if (opts.onResetIgnores) ig.addEventListener("click", opts.onResetIgnores);
-    counts.append(ig);
+    if (opts.onResetIgnores) {
+      const ig = el("button", "tally tally--ignored", `${ignoredCount} ignored · reset`);
+      ig.type = "button"; ig.addEventListener("click", opts.onResetIgnores);
+      counts.append(ig);
+    } else {
+      counts.append(el("span", "tally tally--ignored", `${ignoredCount} ignored`));
+    }
   }
   bar.append(counts);
 
@@ -220,6 +226,38 @@ function findingRow(f, opts) {
       d.addEventListener("click", () => opts.onDismiss(f)); acts.append(d);
     }
     right.append(acts);
+  }
+  row.append(left, right);
+  return row;
+}
+
+/* ignored findings, kept visible below with a per-item restore (live view) */
+function ignoredCard(findings, opts) {
+  const card = el("section", "card card--ignored");
+  card.append(cardHead(`Ignored (${findings.length})`));
+  const body = el("div", "card__body");
+  for (const f of findings) body.append(ignoredRow(f, opts));
+  card.append(body);
+  return card;
+}
+
+function ignoredRow(f, opts) {
+  const row = el("div", "finding finding--ignored");
+  const left = el("div", "finding__main");
+  left.append(el("code", "finding__field", f.field));
+  const meta = el("div", "finding__meta");
+  meta.append(el("span", "finding__type", f.label));
+  meta.append(el("span", `pill pill--${sevClass(f.severity)} pill--sm`, f.severity));
+  if (f.via === "field-name") meta.append(el("span", "reg reg--hint", "field-name"));
+  left.append(meta);
+
+  const right = el("div", "finding__right");
+  if (!opts.shared && opts.onRestore) {
+    const b = el("button", "mini mini--restore", "↺ restore"); b.type = "button"; b.title = "Restore this finding";
+    b.addEventListener("click", () => opts.onRestore(f));
+    right.append(b);
+  } else {
+    right.append(el("span", "reg", "ignored"));
   }
   row.append(left, right);
   return row;

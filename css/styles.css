@@ -253,6 +253,14 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .mini:hover { color: var(--text); border-color: var(--line-strong); }
 .mini--x { color: var(--fail); }
 .mini--x:hover { color: #fff; background: rgba(251,113,133,.18); border-color: rgba(251,113,133,.35); }
+.mini--restore { color: var(--c1); border-color: rgba(34,211,238,.3); }
+.mini--restore:hover { color: #fff; background: rgba(34,211,238,.16); border-color: rgba(34,211,238,.5); }
+
+/* ── Ignored findings ─────────────────────────────── */
+.card--ignored { opacity: .82; }
+.card--ignored .card__title { color: var(--muted); }
+.finding--ignored .finding__field { color: var(--soft); text-decoration: line-through; text-decoration-color: var(--faint); }
+.finding--ignored .finding__type { color: var(--muted); }
 
 /* ── Custom rules ─────────────────────────────────── */
 .rules { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--glass); overflow: hidden; }
