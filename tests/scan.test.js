@@ -1,40 +1,99 @@
-/* Offline tests for the scan engine. Run: npm test */
+/* Edge-case tests for the scan engine. Run: npm test */
 import assert from "node:assert";
 import { scanText, failsAt } from "../site/js/core/scan.js";
+import { aadhaarValid, luhnValid, publicIPv4 } from "../site/js/core/rules.js";
 
-const byType = (r, t) => r.findings.find((f) => f.type === t);
+let pass = 0;
+const has = (r, t) => r.findings.some((f) => f.type === t && !f.masked);
+const hasMasked = (r, t) => r.findings.some((f) => f.type === t && f.masked);
+const ok = (cond, msg) => { assert.ok(cond, msg); pass++; };
 
-/* ── JSON: field paths, types, masked flag ────────── */
+/* ── true positives ───────────────────────────────── */
 const json = JSON.stringify({
-  user: { phone: "+91 9876543210", email: "asha@example.com", full_name: "Asha Rao" },
-  meta: { lat_lng: "12.9716,77.5946", masked_phone: "+91 98XXXXXX21" },
-  card: "4111 1111 1111 1111",
+  user: { fullName: "Asha Rao", phone: "+91 9876543210", email: "asha@example.com", upi: "asha@okhdfcbank" },
+  geo: { lat_lng: "12.9716,77.5946" },
+  pay: { card: "4111 1111 1111 1111", iban: "DE89370400440532013000" },
+  net: { ipv4: "203.0.113.42", ipv6: "2606:4700:4700::1111", mac: "AA:BB:CC:DD:EE:FF" },
+  auth: { token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.7xK2pQwErT1aZ9bC3dEf", apiKey: "AKIAIOSFODNN7EXAMPLE" },
 });
 const r = scanText(json);
+ok(r.format === "json", "json format");
+for (const t of ["name", "phone_number", "email", "upi_id", "precise_location", "credit_card", "iban", "ip_address", "mac_address", "jwt_token", "secret_key"]) {
+  ok(has(r, t), `detects ${t}`);
+}
+ok(r.findings.find((f) => f.type === "phone_number").field === "user.phone", "phone field path");
+ok(r.suggested_masking, "offers masking");
 
-assert.equal(r.format, "json");
-assert.ok(byType(r, "phone_number"), "detects phone");
-assert.equal(byType(r, "phone_number").field, "user.phone");
-assert.equal(byType(r, "phone_number").masked, false);
-assert.ok(byType(r, "email"), "detects email");
-assert.ok(byType(r, "precise_location"), "detects lat_lng via field name");
-assert.ok(byType(r, "name"), "detects name via field name");
-assert.equal(byType(r, "credit_card").severity, "critical");
-assert.ok(r.suggested_masking, "offers a masking suggestion");
+/* card must NOT also be reported as a phone (span dedup) */
+ok(!scanText('{"card":"4111 1111 1111 1111"}').findings.some((f) => f.type === "phone_number"), "card not double-flagged as phone");
 
-// the already-masked phone should be flagged masked:true, not counted as unmasked
-const maskedOne = r.findings.find((f) => f.field === "meta.masked_phone");
-assert.ok(maskedOne && maskedOne.masked === true, "recognizes an already-masked value");
+/* ── false positives that must NOT flag ───────────── */
+const fp = scanText(JSON.stringify({
+  ts: 1718533620, count: 9876543210, orderId: "1234567890123",
+  version: "1.0", localIp: "192.168.1.10", loopback: "127.0.0.1", internal: "10.0.0.5",
+  filename: "report-2024.pdf", hostname: "api-prod-03",
+  sku: "1234567812345678", refCode: "111122223333",
+}));
+ok(!has(fp, "phone_number"), "unix ts / bare ints / order id not phones");
+ok(!has(fp, "credit_card"), "non-Luhn 16-digit not a card");
+ok(!has(fp, "aadhaar"), "invalid-Verhoeff 12-digit not Aadhaar");
+ok(!has(fp, "ip_address"), "private/loopback IPs not flagged");
+ok(!has(fp, "name"), "filename/hostname not names");
 
-/* ── logs: line-based detection ───────────────────── */
-const logs = scanText("2026-06-15 INFO login user=bob@corp.com ip=203.0.113.9 ok\nplain line");
-assert.equal(logs.format, "logs");
-assert.ok(byType(logs, "email"), "email in log line");
-assert.equal(byType(logs, "email").field, "line 1");
-assert.ok(byType(logs, "ip_address"), "ip in log line");
+/* ── masked awareness ─────────────────────────────── */
+const mk = scanText('{"phone":"+91 98XXXXXX21","email":"a***@example.com"}');
+ok(hasMasked(mk, "phone_number"), "masked phone via field name → masked:true");
+ok(!failsAt(mk, "high"), "fully-masked payload does not fail CI");
+
+/* ── arrays + nested + key propagation ────────────── */
+const arr = scanText('{"contacts":{"phones":["9876543210","9123456780"]}}');
+ok(arr.findings.filter((f) => f.type === "phone_number").length === 2, "bare phones in array caught via parent key");
+
+/* ── logs: multi-match + key=value hints ──────────── */
+const logs = scanText([
+  "2026-06-16T10:22:01Z INFO from=alice@corp.com to=bob@corp.com ip=198.51.100.7",
+  "DEBUG auth password=hunter2 token set",
+].join("\n"));
+ok(logs.format === "logs", "logs format");
+ok(logs.findings.filter((f) => f.type === "email").length === 2, "two emails in one line");
+ok(has(logs, "ip_address"), "public ip in log");
+ok(has(logs, "password"), "password=… caught via key-hint (regex can't)");
+
+/* ── validators (unit) ────────────────────────────── */
+ok(luhnValid("4111111111111111"), "luhn valid card");
+ok(!luhnValid("4111111111111112"), "luhn rejects bad card");
+ok(!aadhaarValid("111122223333"), "aadhaar rejects bad checksum");
+ok(publicIPv4("203.0.113.42") && !publicIPv4("10.0.0.1"), "public vs private ipv4");
+
+/* a constructed valid Aadhaar (correct Verhoeff digit) is detected */
+let validAadhaar;
+for (let c = 0; c < 10; c++) { const cand = "23412341234" + c; if (aadhaarValid(cand)) { validAadhaar = cand; break; } }
+ok(validAadhaar && has(scanText(`{"uid":"${validAadhaar}"}`), "aadhaar"), "valid Aadhaar detected");
+
+/* ── expanded value detectors ─────────────────────── */
+const adv = scanText(JSON.stringify({
+  a: "ABC1234567",                                  // voter id (EPIC)
+  b: "HDFC0001234",                                 // IFSC
+  c: "490154203237518",                             // IMEI (15-digit Luhn)
+  d: "12-3456789",                                  // EIN tax id
+  e: "550e8400-e29b-41d4-a716-446655440000",         // UUID
+  f: "see https://twitter.com/asharao for updates",  // social profile URL
+  g: "P1234567",                                    // passport
+  h: "021000021",                                   // ABA routing
+}));
+for (const t of ["voter_id", "ifsc", "imei", "tax_id", "uuid", "social_profile", "passport", "routing_number"]) ok(has(adv, t), `detects ${t}`);
+ok(!has(adv, "credit_card"), "15-digit IMEI not mis-flagged as a card");
+
+/* ── word-based PII via field-name hints ──────────── */
+const sens = scanText(JSON.stringify({
+  religion: "Hindu", ethnicity: "Asian", political_view: "left",
+  health: { diagnosis: "Type 2 diabetes" }, face_data: "<blob>",
+  sessionId: "abc123def456", cvv: "123", gender: "female", deviceId: "GAID-xyz",
+}));
+for (const t of ["religion", "ethnicity", "political", "health_data", "biometric", "session_token", "cvv", "gender", "device_id"]) ok(has(sens, t), `field-hint ${t}`);
 
 /* ── CI gate ──────────────────────────────────────── */
-assert.equal(failsAt(r, "high"), true, "fails at high (phone/card present)");
-assert.equal(failsAt(scanText('{"ok":true,"count":5}'), "high"), false, "clean payload passes");
+ok(failsAt(r, "high"), "fails at high");
+ok(!failsAt(scanText('{"ok":true,"count":5}'), "high"), "clean payload passes");
 
-console.log("✓ all scan tests passed");
+console.log(`✓ all ${pass} scan assertions passed`);
