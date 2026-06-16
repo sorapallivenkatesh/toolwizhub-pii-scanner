@@ -1,7 +1,7 @@
 /* Edge-case tests for the scan engine. Run: npm test */
 import assert from "node:assert";
-import { scanText, failsAt } from "../site/js/core/scan.js";
-import { aadhaarValid, luhnValid, publicIPv4 } from "../site/js/core/rules.js";
+import { scanText, failsAt } from "../js/core/scan.js";
+import { aadhaarValid, luhnValid, publicIPv4 } from "../js/core/rules.js";
 
 let pass = 0;
 const has = (r, t) => r.findings.some((f) => f.type === t && !f.masked);

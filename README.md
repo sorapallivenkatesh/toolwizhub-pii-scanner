@@ -33,14 +33,17 @@ only a secondary hint.
 
 ## Architecture
 
+Static site (no backend) — files live at the repo root, deployed to Cloudflare Pages.
+
 ```
-site/                 static frontend → Cloudflare Pages (brand + splash, dark glass theme)
-  index.html, css/, assets/
-  js/main.js          paste → scan → render (no network)
-  js/ui/{render,splash}.js
-  js/core/            PURE engine — no DOM, no I/O
-    rules.js          detectors, checksum validators, severity/regulation map, masking + snippets
-    scan.js           parse JSON / log lines → field-pathed findings + suggested masking
+index.html            markup + brand + splash
+css/styles.css        dark glass theme
+assets/               ToolWizHub WebP brand
+js/main.js            paste → scan → render (no network)
+js/ui/{render,splash}.js
+js/core/              PURE engine — no DOM, no I/O
+  rules.js            detectors, checksum validators, severity/regulation map, masking + snippets
+  scan.js             parse JSON / log lines → field-pathed findings + suggested masking
 tests/scan.test.js    offline engine tests
 package.json          type:module
 ```
@@ -54,7 +57,7 @@ npm run site   # serve the UI → http://localhost:8080
 
 ## Deploy
 
-Cloudflare Pages — Build command: *(empty)*, output dir: `site`. Custom domain
+Cloudflare Pages — Build command: *(empty)*, output dir: `/` (root). Custom domain
 `pii.toolwizhub.com`.
 
 ## Roadmap

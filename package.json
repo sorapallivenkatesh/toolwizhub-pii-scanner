@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Scan API responses / logs for unmasked PII — runs entirely in your browser.",
   "scripts": {
-    "site": "python3 -m http.server 8080 --directory site",
+    "site": "python3 -m http.server 8080",
     "test": "node tests/scan.test.js"
   }
 }
